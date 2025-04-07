@@ -5,9 +5,9 @@ from .mymodel.stock_crawling import latest_news # 실제 서버로 돌릴때
 from symspellpy import SymSpell, Verbosity 
 import json
 import os
-import os
 from dotenv import load_dotenv
-import requests
+import pandas as pd
+
 
 # .env 불러오기
 load_dotenv()
@@ -22,32 +22,45 @@ def extract_stock_name(msg):
 
     stock_names = [item["회사명"] for item in stock_data]
 
+    ALIAS_PATH = os.path.join(BASE_DIR, "mymodel", "data", "alias.csv")
+
+    # CSV 불러오기
+    alias_df = pd.read_csv(ALIAS_PATH, encoding="utf-8-sig")
+
+    # alias → 정식 종목명 딕셔너리로 바로 변환
+    alias_map = dict(zip(alias_df["alias"], alias_df["정식명"]))
+
+    # 0️⃣ 먼저 alias로 바로 매핑 시도
+    msg_no_space = msg.replace(" ", "")
+    for alias, true_name in alias_map.items():
+        if alias in msg_no_space:
+            return true_name, None
+
     # 1️⃣ 정확한 종목명이 포함돼 있으면 바로 반환
     for name in stock_names:
         if name in msg:
-            return name
+            return name, None  # 두 번째는 선택지 없음
 
     # 2️⃣ SymSpell 초기화
     sym_spell = SymSpell(max_dictionary_edit_distance=2, prefix_length=5)
     for name in stock_names:
         sym_spell.create_dictionary_entry(name, 1)
 
-    # 3️⃣ 문장에서 공백 제거하고 오타 교정 시도
+    # 3️⃣ 공백 제거하고 오타 교정
     msg_no_space = msg.replace(" ", "")
 
     try:
         suggestions = sym_spell.lookup(msg_no_space, Verbosity.CLOSEST, max_edit_distance=2)
     except ValueError:
-        return None
+        return None, None
 
-    # 4️⃣ 유사도 점수가 너무 크면 무시
-    if suggestions:
-        top = suggestions[0]
-        if top.distance <= 1 and top.term in stock_names:
-            return top.term
+    # 4️⃣ 유사 종목 2개 제안
+    suggestion_names = [s.term for s in suggestions[:2] if s.term in stock_names]
 
-    # 5️⃣ 그래도 못 찾으면
-    return None
+    if suggestion_names:
+        return None, suggestion_names  # 정답은 없고, 선택지만 반환
+
+    return None, None  # 아무것도 못 찾았을 때
 
 
 def get_latest_news(stock_name: str) -> List[str]:
@@ -59,13 +72,7 @@ def get_latest_news(stock_name: str) -> List[str]:
     """
 
     news_list_data = latest_news(stock_name) # 뉴스 리스트 받기
-
-    news_list = []
-
-    for news in news_list_data:
-        news_list.append(news["title"]+" "+news["summary"])
-
-    return news_list
+    return news_list_data
 
 def get_financial_risks(stock_name):
     """

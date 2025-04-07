@@ -86,58 +86,68 @@ def chat(request):
             if any(kw in msg for kw in ["오늘의", "기피", "유망"]):
                 return JsonResponse({"response": "🤖 오늘의 유망&기피 종목 서비스는 아직 준비중입니다.\n불편을 끼쳐드려 죄송합니다."})
 
-            stock_name = extract_stock_name(msg)
+            intent_keywords = ["예측", "괜찮아", "유망", "어때", "왜 올라", "왜 떨어져", "전망", "분석"]
 
-            if stock_name and any(kw in stock_name for kw in (["예측", "괜찮아", "유망", "어때", "왜 올라", "왜 떨어져"] + stock_names)):
-                # 1. msg 오타 수정
-                msg = extract_stock_name(msg)
-                if msg is not None:
-                    news_articles = get_latest_news(msg)  # 종목명 기반 뉴스 가져오기 함수 (직접 구현 필요)
+            stock_name, suggestions = extract_stock_name(msg)
+            print("🧪 stock_name:", stock_name)
+            print("🧪 suggestions:", suggestions)
 
-                    # 2. 각 뉴스에 대해 softmax 예측
-                    news_probs_list = []
-                    pred_classes = []
+            # 1️⃣ 종목명을 정확히 찾았을 때
+            if stock_name:
+                # 👉 의도 키워드가 없으면 유도 질문
+                if not any(kw in msg for kw in intent_keywords):
+                    return JsonResponse({
+                        "response": f"'{stock_name}'에 대해 어떤 정보가 궁금하신가요? 😊\n예: '{stock_name} 주가 예측해줘', '{stock_name} 왜 떨어졌어?'"
+                    })
 
-                    for article in news_articles:
-                        # 여기까지 오류 x
-                        preds, probs = predict(article)  # ✅ 예측 실행
-                        pred_class = preds[0]  # 예측 클래스
-                        prob_dist = probs[0][:4]  # 클래스 0~3만 사용
+                # 👉 의도 키워드까지 있으면 분석 진행
+                news_articles = get_latest_news(stock_name)
 
-                        pred_classes.append(pred_class)
-                        news_probs_list.append(prob_dist)
+                news_probs_list = []
+                pred_classes = []
 
-                    # 3. 평균 확률 계산
-                    avg_probs = [sum(p[i] for p in news_probs_list) / len(news_probs_list) for i in range(4)]
-                    predicted_class = avg_probs.index(max(avg_probs))
+                for article in news_articles:
+                    preds, probs = predict(article)
+                    pred_class = preds[0]
+                    prob_dist = probs[0][:4]
 
-                    print(avg_probs,"\n",predicted_class)
-                    exit()
-                    # 4. 재무 지표 가져오기
-                    risk_data = get_financial_risks(msg)
+                    pred_classes.append(pred_class)
+                    news_probs_list.append(prob_dist)
 
-                    # 5. 최종 점수 계산
-                    score = calculate_final_score(avg_probs, risk_data)
-                    interpretation = interpret_score(score)
-                    summary = generate_news_summary(news_articles, predicted_class)
-                    # 🤖
-                    # 이 이후 json으로 넘겨주기
-                    return JsonResponse({"response": response, "interpretation": interpretation, "summary": summary})
+                if not news_probs_list:
+                    return JsonResponse({"response": "🤖 관련 뉴스를 찾지 못했어요 😥"})
+
+                avg_probs = [sum(p[i] for p in news_probs_list) / len(news_probs_list) for i in range(4)]
+                predicted_class = avg_probs.index(max(avg_probs))
+
+                print(avg_probs)
+                print(predicted_class)
+                exit() # ← 개발 중이 아니면 제거해도 돼
+
+                risk_data = get_financial_risks(stock_name)
+                score = calculate_final_score(avg_probs, risk_data)
+                interpretation = interpret_score(score)
+                summary = generate_news_summary(news_articles, predicted_class)
+
+                return JsonResponse({
+                    "response": f"🤖 {stock_name} 종목에 대한 분석 결과예요 📈",
+                    "interpretation": interpretation,
+                    "summary": summary
+                })
+
+            # 2️⃣ 종목을 정확히 찾지 못했지만 유사한 후보가 있을 경우
+            elif suggestions:
+                return JsonResponse({
+                    "response": f"🤖 입력하신 종목명을 정확히 찾을 수 없어요.\n혹시 아래 중 하나인가요?",
+                    "suggestions": suggestions
+                })
+
+            # 3️⃣ 아무것도 못 찾았을 때
             else:
-                response = (
-                    "🤖 종목명이 올바르지 않거나 \n존재하지 않습니다.\n종목명을 다시 입력해주세요\n."
-                    "📌 주식 예측 사용법 안내\n\n"
-                    "1. 예측을 원하는 💡주식 종목명💡을 입력하세요. 예: `삼성전자`, `카카오`, `네이버`\n"
-                    "2. 입력한 종목과 관련된 💡최신 뉴스 데이터를 기반💡으로 주가 전망을 예측해드려요. 📈\n"
-                    "3. 예측 결과는 5단계로 제공됩니다 : \n"
-                    "- 📉 매우 하락\n"
-                    "- ⬇ 하락\n"
-                    "- ➖ 보합\n"
-                    "- ⬆ 상승\n"
-                    "- 📈 매우 상승\n\n"
-                    "📝 예시: 삼성전자 또는 대한 항공 주식 어때?"
-                )
-                return JsonResponse({"response": response})
+                return JsonResponse({
+                    "response": "🤖 관련된 종목명을 찾지 못했어요 😢"
+                })
+
 
         return JsonResponse({"error": "POST 요청만 허용됩니다."}, status=405)
 
