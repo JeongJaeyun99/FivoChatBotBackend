@@ -42,7 +42,8 @@ INSTALLED_APPS = [
     "rest_framework",
     'corsheaders',
     "chatbot",
-    'news_click'
+    'news_click',
+    'drf_yasg',
 ]
 
 REST_FRAMEWORK = {
@@ -72,7 +73,7 @@ TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [],
-        'APP_DIRS': True,
+        'APP_DIRS': True,  # ✅ 반드시 True로!
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.debug',
